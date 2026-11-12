@@ -163,7 +163,7 @@ request text with a few regexes and prints `{"level", "conf", "relay", "features
 
 **Opg** (Opt + Generative) looks at a request and picks which *cartridge* (specialist) should answer it.
 Think of a revolver: the **magazine** has 6 chambers, each holding a cartridge; Opg only turns the cylinder.
-It generates nothing and runs no model, and it never answers with something that is not in the magazine.
+It generates nothing, and it never answers with something that is not in the magazine.
 
 ```bash
 echo '{"text":"main.pyのバグを直して"}' | python3 bridge/python/opg.py
@@ -177,7 +177,7 @@ python3 bridge/python/opg.py --demo     # dry-fire every example sentence of the
 | `cartridge` / `slot` | the chosen cartridge id and its chamber (0–5) |
 | `conf` / `runner_up` | confidence, and the next-best loaded cartridge |
 | `level` | difficulty 0–4, straight from `difficulty.py` (a separate axis) |
-| `path` | `relay` / `full` = fast path · `embed` = careful path (not implemented yet) · `fallback` = not sure, back to chamber 0 |
+| `path` | `relay` / `full` = fast path · `embed` = careful path · `fallback` = not sure, back to chamber 0 |
 | `reason` | one line: which words decided it |
 
 - **Fast path:** word cues from the name tags → 10 features (strong ×5, weak ×5) → a 6-output MYLN cascade
@@ -187,7 +187,14 @@ python3 bridge/python/opg.py --demo     # dry-fire every example sentence of the
 - **Name tags:** `configs/opg/cartridges/<id>.json` — `keywords` / `patterns` (strong cues), `hints` / `hint_patterns`
   (weak cues), `examples`, plus `base_model` / `lora` / `prompt` for the later "trigger" stage.
   **Adding a cartridge = adding one name-tag file and putting its id in the magazine.** Opg itself is not rebuilt.
-- **Careful path** (small embedding model compared against `examples`): only the hook `opg.careful_path()` exists; it returns `None`.
+- **Careful path** (`bridge/python/opg_embed.py`): when the fast path cannot settle on a specialist, the request is
+  compared with the `examples` of the loaded name tags using embeddings from a small **local** GGUF model
+  (read with llama.cpp's `llama-embedding`; no network, nothing is downloaded, nothing is generated).
+  Point it at a model with `configs/opg/local.json` (copy `local.example.json`) or `OPG_EMBED_MODEL`.
+  No model → the careful path is skipped and Opg runs on the fast path alone. `--fast-only` / `OPG_CAREFUL=0` turns it off.
+  Adding example sentences to a name tag is all it takes to improve it; they are embedded once and cached in `configs/opg/.cache/`.
+- Unseen test sentences (`tests/opg_cases.json`, `holdout2`): fast path alone 16/40, with the careful path 31/40
+  (Qwen2.5-0.5B embeddings, about 1 s per request that reaches it); ambiguous sentences stay on `general`.
 - First six: `0 general` · `1 chat` · `2 code` · `3 research` · `4 doc` · `5 calc`.
 
 ```bash
@@ -261,6 +268,7 @@ bridge/
   python/myln.py       — Python ctypes wrapper (MylnFrame, MylnCascade)
   python/difficulty.py — text → 5 features → difficulty level (JSON in/out)
   python/opg.py        — Opg: text → which cartridge (6 chambers), dry fire only
+  python/opg_embed.py  — Opg careful path: nearest example sentences via a local embedding model
 
 configs/               — ready-made JSON tunings (difficulty; frame + cascade)
 configs/opg/           — Opg magazine, cartridge name tags, 6-output cascade
@@ -311,7 +319,7 @@ Human–AI coexistence shouldn't depend on a data center.
 - [x] Universal C API — Python, Node.js, Ruby, Go, Rust
 - [x] Python bridge — `MylnFrame`, `MylnCascade`
 - [x] Difficulty tuner — `tune_difficulty`
-- [x] Opg — cartridge selection, fast path + dry fire (`bridge/python/opg.py`); careful path and trigger not yet
+- [x] Opg — cartridge selection: fast path, careful path, dry fire (`bridge/python/opg.py`); trigger not yet
 - [x] JSON tuning config — `myln_tune_custom` / `tune_custom` ([schema](docs/tuning-config.md))
 - [ ] `.mhead` for *heads* — portable head definitions (weights of non-trivial heads)
 - [ ] CLI tool — `myln run --frame SS --head difficulty.mhead`

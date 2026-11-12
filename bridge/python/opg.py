@@ -2,12 +2,14 @@
 Opg (Opt + Generative) ── リボルバー式カートリッジ選択
 =====================================================
 入力文を見て「弾倉の6穴のうち、どのカートリッジ(専門家)で答えるか」を決めるだけの部品。
-生成はしない。モデルも動かさない(=空撃ち)。弾倉に無い答えは絶対に返さない。
+生成はしない(=空撃ち)。弾倉に無い答えは絶対に返さない。
+速い道はモデルを一切動かさない。丁寧な道だけ、手元の小型モデルで文を数字にする(生成はしない・ネット不要)。
 
   入力文
     ↓ ① 速い道: 名札の言葉の手がかり → 特徴量10個 → MYLN カスケード(configs/opg/cascade.json)
     ↓      リレーが自信あり(80%以上) → 決定 / なければフルで再判定(弱い手がかりも見る)
-    ↓ ② 丁寧な道: 小型の埋め込みモデルで例文との近さを比べる ← 差し込み口だけ(未実装)
+    ↓ ② 丁寧な道: 手元の小型モデルの埋め込みで、名札の例文との近さを比べる(opg_embed.py)
+    ↓      速い道が専門家に決められなかったときだけ動く。モデルが無ければ飛ばす
     ↓ ③ どちらも自信なし → 0番「汎用」に戻す
 
   特徴量 = [強1..強5, 弱1..弱5]   強 = 名札の keywords / patterns に当たった数
@@ -21,8 +23,9 @@ Opg (Opt + Generative) ── リボルバー式カートリッジ選択
 使い方:
   echo '{"text":"main.pyのバグを直して"}' | python3 bridge/python/opg.py
     → {"cartridge":"code","slot":2,"conf":0.97,"runner_up":"general","level":1,"path":"relay","reason":"..."}
-  python3 bridge/python/opg.py --demo      # 名札の例文を全部空撃ち
+  python3 bridge/python/opg.py --demo      # 名札の例文を全部、速い道だけで空撃ち
   python3 bridge/python/opg.py --debug     # 特徴量と6穴の点数も出す
+  python3 bridge/python/opg.py --fast-only # 丁寧な道を使わない(環境変数 OPG_CAREFUL=0 でも同じ)
 
 path の意味: relay=リレーで即決 / full=フルで決定 / embed=丁寧な道で決定 / fallback=自信なしで汎用に戻した
 """
@@ -37,6 +40,7 @@ from typing import Optional
 sys.path.insert(0, str(Path(__file__).parent))
 from myln import MylnCascade  # noqa: E402
 import difficulty  # noqa: E402
+import opg_embed  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_MAGAZINE = ROOT / "configs" / "opg" / "magazine.json"
@@ -90,7 +94,8 @@ class Cartridge:
 class Magazine:
     """弾倉。6穴ぶんの名札を読み込み、カスケードを設定する。"""
 
-    def __init__(self, path=None):
+    def __init__(self, path=None, careful: Optional[bool] = None):
+        """careful: 丁寧な道を使うか。None=弾倉ファイルの設定と環境変数 OPG_CAREFUL(0で切る)に従う。"""
         self.path = Path(path or os.environ.get("OPG_MAGAZINE") or DEFAULT_MAGAZINE).expanduser().resolve()
         spec = json.loads(self.path.read_text(encoding="utf-8"))
         ids = spec.get("slots")
@@ -119,6 +124,29 @@ class Magazine:
         self.min_conf = float(spec.get("min_conf", 0.55))    # これ未満の自信なら汎用に戻す
         self.cascade = MylnCascade(threshold=0.80, n_classes=N_SLOTS).tune_custom(
             self.path.parent / spec.get("cascade", "cascade.json"))
+        # ② 丁寧な道の設定(実際にモデルを読むのは最初に必要になったとき)
+        cf = spec.get("careful") or {}
+        if careful is None:
+            careful = bool(cf.get("enabled", False)) and os.environ.get("OPG_CAREFUL", "1") != "0"
+        self.careful = careful
+        self.careful_cfg = {"pooling": str(cf.get("pooling", "mean")), "top_k": int(cf.get("top_k", 2)),
+                            "min_score": float(cf.get("min_score", 0.3)), "min_margin": float(cf.get("min_margin", 0.05))}
+        self._bank = None
+
+    def bank(self):
+        """例文の埋め込み。丁寧な道が使えないとき(切ってある・モデルが無い)は None。"""
+        if not self.careful:
+            return None
+        if self._bank is None:
+            self._bank = False
+            model = opg_embed.find_model(self.path.parent)
+            if model:
+                emb = opg_embed.Embedder(model, self.careful_cfg["pooling"])
+                examples = [(ex, i) for i, c in enumerate(self.slots) if c for ex in c.examples]
+                bank = opg_embed.ExampleBank(emb, examples, self.path.parent / ".cache")
+                if bank.ready:
+                    self._bank = bank
+        return self._bank or None
 
     def features(self, text: str):
         """→ (特徴量10個, 穴ごとの (強い当たり, 弱い当たり))。空の穴と0番は常に 0。"""
@@ -137,17 +165,18 @@ class Magazine:
 
 
 def careful_path(text: str, magazine: Magazine, probs: list) -> Optional[dict]:
-    """② 丁寧な道(差し込み口のみ・未実装)。
+    """② 丁寧な道: 手元の小型モデルの埋め込みで、入力文と各名札の examples との近さを比べる。
 
-    小型の埋め込みモデルで、入力文と各名札の examples との近さを比べる予定の場所。
-    実装するときは、自信があれば {"slot": 穴番号, "conf": 0.0〜1.0, "reason": "近かった例文"} を返し、
-    自信がなければ None を返す(None なら ③ 汎用に戻る)。slot は弾倉に入っている穴だけを返すこと。
-
-      text     : 入力文
-      magazine : 弾倉(magazine.slots[i].examples に各カートリッジの例文が入っている)
-      probs    : 速い道(フル)が出した6穴の点数。参考用
+    自信があれば {"slot": 穴番号, "runner_up": 次点の穴, "conf": 0.5〜1.0, "reason": "例文「…」に近い"} を返し、
+    自信がない・使えない(切ってある、モデルが無い)ときは None を返す(None なら ③ 汎用に戻る)。
+    slot は弾倉に入っている穴だけ(例文は入っているカートリッジの名札からしか取らない)。
+    中身は opg_embed.py。probs(速い道の6穴の点数)はいまは使っていない。
     """
-    return None
+    bank = magazine.bank()
+    if bank is None:
+        return None
+    c = magazine.careful_cfg
+    return bank.judge(text, c["top_k"], c["min_score"], c["min_margin"])
 
 
 def _quote(words) -> str:
@@ -170,20 +199,25 @@ def select(text: str, magazine: Magazine, debug: bool = False) -> dict:
         parts = ([_quote(s) + " の語"] if s else []) + ([_quote(w) + " の言い回し"] if w else [])
         return magazine.slots[slot].name + ": " + "、".join(parts)
 
-    if used_relay or conf >= magazine.min_conf:              # ① 速い道で決定
-        slot, path = top, ("relay" if used_relay else "full")
-        reason = why(slot) if slot != FALLBACK_SLOT else "専門家の手がかりが足りないので汎用"
+    sure = used_relay or conf >= magazine.min_conf
+    runner = None
+    if sure and top != FALLBACK_SLOT:                        # ① 速い道が専門家に決めた
+        slot, path, reason = top, ("relay" if used_relay else "full"), why(top)
     else:
-        hit = careful_path(text, magazine, probs)            # ② 丁寧な道(いまは常に None)
+        hit = careful_path(text, magazine, probs)            # ② 丁寧な道(使えないときは None)
         if hit and hit.get("slot") in loaded:
             slot, path, conf = hit["slot"], "embed", float(hit.get("conf", 0.0))
             reason = str(hit.get("reason") or "例文に近い")
-        else:                                                # ③ 自信なし → 汎用
+            runner = hit.get("runner_up") if hit.get("runner_up") in loaded else None
+        elif sure:                                           # 速い道が「手がかりなし」と判断 → 汎用
+            slot, path, reason = FALLBACK_SLOT, ("relay" if used_relay else "full"), "専門家の手がかりが足りないので汎用"
+        else:                                                # ③ どちらも自信なし → 汎用
             slot, path, conf = FALLBACK_SLOT, "fallback", probs[FALLBACK_SLOT]
             near = [i for i in order if i != FALLBACK_SLOT and (hits[i][0] or hits[i][1])][:2]
             reason = "決め手に欠けるので汎用(候補: " + " / ".join(why(i) for i in near) + ")" if near \
                 else "自信が低いので汎用"
-    runner = next((i for i in order if i != slot), slot)
+    if runner is None or runner == slot:
+        runner = next((i for i in order if i != slot), slot)
     out = {
         "cartridge": magazine.slots[slot].id,
         "slot": slot,
@@ -202,7 +236,7 @@ if __name__ == "__main__":
     args = sys.argv[1:]
     mag_path = args[args.index("--magazine") + 1] if "--magazine" in args else None
     try:
-        mag = Magazine(mag_path)
+        mag = Magazine(mag_path, careful=False if ("--fast-only" in args or "--demo" in args) else None)
     except (ValueError, OSError, IndexError) as e:
         print(json.dumps({"error": str(e)}, ensure_ascii=False))
         sys.exit(1)

@@ -14,5 +14,12 @@
   "cascade": "cascade.json",
   "strong_per": 3,
   "weak_per": 2,
-  "min_conf": 0.55
+  "min_conf": 0.55,
+  "careful": {
+    "enabled": true,
+    "pooling": "mean",
+    "top_k": 2,
+    "min_score": 0.3,
+    "min_margin": 0.08
+  }
 }

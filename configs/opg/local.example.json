@@ -1,0 +1,4 @@
+{
+  "_comment": "このファイルを local.json という名前でコピーし、手元の小型モデル(GGUF)の場所を書くと『丁寧な道』が有効になる。local.json は Git に入れない。",
+  "embed_model": "~/models/some-small-model.gguf"
+}
