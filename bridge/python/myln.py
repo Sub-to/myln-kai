@@ -87,6 +87,9 @@ class _CAPI:
         # カスケード API
         lib.myln_cascade_new.restype  = ctypes.c_void_p
         lib.myln_cascade_new.argtypes = [ctypes.c_float]
+        if hasattr(lib, "myln_cascade_new_n"):   # 出口の数を指定できる版（古い libmyln には無い）
+            lib.myln_cascade_new_n.restype  = ctypes.c_void_p
+            lib.myln_cascade_new_n.argtypes = [ctypes.c_float, ctypes.c_int]
         lib.myln_cascade_free.restype  = None
         lib.myln_cascade_free.argtypes = [ctypes.c_void_p]
         lib.myln_cascade_infer.restype  = ctypes.POINTER(ctypes.c_float)
@@ -253,9 +256,14 @@ class MylnCascade:
         label, conf, used_relay = cas.predict_with_path([0.67,0.05,0.0,0.0,0.67])
     """
 
-    def __init__(self, threshold: float = 0.80, lib_path: Optional[str] = None):
+    def __init__(self, threshold: float = 0.80, lib_path: Optional[str] = None, n_classes: int = 5):
         self._api    = _CAPI(lib_path)
-        self._handle = self._api.lib.myln_cascade_new(ctypes.c_float(threshold))
+        if n_classes == 5:
+            self._handle = self._api.lib.myln_cascade_new(ctypes.c_float(threshold))
+        else:   # 出口の数が 5 以外（Opg の 6穴など）
+            self._api.require("myln_cascade_new_n")
+            self._handle = self._api.lib.myln_cascade_new_n(ctypes.c_float(threshold), n_classes)
+        self.n_classes = n_classes
         if not self._handle:
             raise RuntimeError("myln_cascade_new() failed")
         self.classes = None

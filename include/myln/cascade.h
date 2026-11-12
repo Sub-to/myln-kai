@@ -30,11 +30,13 @@ class CascadeFrame {
     mutable int  full_hits_   = 0;  // フルまで回った回数
 
 public:
-    CascadeFrame(float threshold = 0.80f)
-        : relay_(SS, 5)   // 5クラス固定
-        , full_ (T,  5)
+    // n_classes: 出口の数（既定 5 = 難易度判定。Opg の 6穴などは 6 を渡す）
+    CascadeFrame(float threshold = 0.80f, int n_classes = 5)
+        : relay_(SS, n_classes)
+        , full_ (T,  n_classes)
         , threshold_(threshold)
     {}
+    int n_classes() const { return relay_.n_classes(); }
 
     // ── チューニング用アクセス ──────────────────────────────
     Frame& relay() { return relay_; }

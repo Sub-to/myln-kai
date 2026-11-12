@@ -1,0 +1,304 @@
+{
+ "schema": "myln-tune/1",
+ "name": "opg-cascade",
+ "description": "Opg fast path (6 chambers). Chambers 1..5: score[c] = strong[c] + 0.4*weak[c]. Chamber 0 (general) is a constant baseline 0.27, so a specialist is chosen only when its score beats that. Relay and full see the same score (like the difficulty cascade); the relay is steeper and settles clear inputs, the full frame re-grades the close ones.",
+ "classes": [
+  "slot0",
+  "slot1",
+  "slot2",
+  "slot3",
+  "slot4",
+  "slot5"
+ ],
+ "features": [
+  "strong1",
+  "strong2",
+  "strong3",
+  "strong4",
+  "strong5",
+  "weak1",
+  "weak2",
+  "weak3",
+  "weak4",
+  "weak5"
+ ],
+ "threshold": 0.8,
+ "relay": {
+  "size": "SS",
+  "n_classes": 6,
+  "in_dim": 10,
+  "router": {
+   "normalize": false,
+   "slots": [
+    {
+     "terms": [
+      [
+       1,
+       0,
+       4.0
+      ],
+      [
+       1,
+       5,
+       1.6
+      ]
+     ]
+    },
+    {
+     "terms": [
+      [
+       2,
+       1,
+       4.0
+      ],
+      [
+       2,
+       6,
+       1.6
+      ]
+     ]
+    },
+    {
+     "terms": [
+      [
+       3,
+       2,
+       4.0
+      ],
+      [
+       3,
+       7,
+       1.6
+      ]
+     ]
+    },
+    {
+     "terms": [
+      [
+       4,
+       3,
+       4.0
+      ],
+      [
+       4,
+       8,
+       1.6
+      ],
+      [
+       5,
+       4,
+       4.0
+      ],
+      [
+       5,
+       9,
+       1.6
+      ]
+     ]
+    }
+   ]
+  },
+  "heads": [
+   {
+    "type": "passthrough",
+    "name": "slot1"
+   },
+   {
+    "type": "passthrough",
+    "name": "slot2"
+   },
+   {
+    "type": "passthrough",
+    "name": "slot3"
+   },
+   {
+    "type": "passthrough",
+    "name": "slot4_5"
+   }
+  ],
+  "ring": {
+   "mode": "near_identity",
+   "self": 0.6,
+   "neighbor": 0.2
+  },
+  "center": {
+   "normalize_agg": false,
+   "key": "identity",
+   "query": [],
+   "cls": {
+    "terms": [
+     [
+      1,
+      1,
+      20.0
+     ],
+     [
+      2,
+      2,
+      20.0
+     ],
+     [
+      3,
+      3,
+      20.0
+     ],
+     [
+      4,
+      4,
+      20.0
+     ],
+     [
+      5,
+      5,
+      20.0
+     ]
+    ],
+    "bias": [
+     [
+      0,
+      5.4
+     ]
+    ]
+   }
+  }
+ },
+ "full": {
+  "size": "T",
+  "n_classes": 6,
+  "in_dim": 10,
+  "router": {
+   "normalize": false,
+   "slots": [
+    {
+     "terms": [
+      [
+       1,
+       0,
+       4.0
+      ],
+      [
+       1,
+       5,
+       1.6
+      ]
+     ]
+    },
+    {
+     "terms": [
+      [
+       2,
+       1,
+       4.0
+      ],
+      [
+       2,
+       6,
+       1.6
+      ]
+     ]
+    },
+    {
+     "terms": [
+      [
+       3,
+       2,
+       4.0
+      ],
+      [
+       3,
+       7,
+       1.6
+      ]
+     ]
+    },
+    {
+     "terms": [
+      [
+       4,
+       3,
+       4.0
+      ],
+      [
+       4,
+       8,
+       1.6
+      ],
+      [
+       5,
+       4,
+       4.0
+      ],
+      [
+       5,
+       9,
+       1.6
+      ]
+     ]
+    }
+   ]
+  },
+  "heads": [
+   {
+    "type": "passthrough",
+    "name": "slot1"
+   },
+   {
+    "type": "passthrough",
+    "name": "slot2"
+   },
+   {
+    "type": "passthrough",
+    "name": "slot3"
+   },
+   {
+    "type": "passthrough",
+    "name": "slot4_5"
+   }
+  ],
+  "ring": {
+   "mode": "near_identity",
+   "self": 0.6,
+   "neighbor": 0.2
+  },
+  "center": {
+   "normalize_agg": false,
+   "key": "identity",
+   "query": [],
+   "cls": {
+    "terms": [
+     [
+      1,
+      1,
+      16.0
+     ],
+     [
+      2,
+      2,
+      16.0
+     ],
+     [
+      3,
+      3,
+      16.0
+     ],
+     [
+      4,
+      4,
+      16.0
+     ],
+     [
+      5,
+      5,
+      16.0
+     ]
+    ],
+    "bias": [
+     [
+      0,
+      4.32
+     ]
+    ]
+   }
+  }
+ }
+}

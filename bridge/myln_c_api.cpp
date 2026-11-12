@@ -79,7 +79,7 @@ const char* myln_version  (void)        { return "0.1.0"; }
 struct CascadeCtx {
     myln::CascadeFrame cas;
     std::vector<float> out_buf;
-    explicit CascadeCtx(float thr) : cas(thr) { out_buf.resize(5, 0.f); }
+    explicit CascadeCtx(float thr, int n_classes = 5) : cas(thr, n_classes) { out_buf.resize(n_classes, 0.f); }
 };
 static CascadeCtx* cctx(void* h) { return static_cast<CascadeCtx*>(h); }
 
@@ -87,9 +87,16 @@ void* myln_cascade_new(float threshold) {
     try { return new CascadeCtx(threshold); }
     catch (...) { return nullptr; }
 }
+void* myln_cascade_new_n(float threshold, int n_classes) {
+    if (n_classes < 2 || n_classes > 4096) return nullptr;
+    try { return new CascadeCtx(threshold, n_classes); }
+    catch (...) { return nullptr; }
+}
+int myln_cascade_n_classes(void* cas) { return cctx(cas)->cas.n_classes(); }
 void myln_cascade_free(void* cas) { delete cctx(cas); }
 
 void myln_cascade_tune_difficulty(void* cas) {
+    if (cctx(cas)->cas.n_classes() != 5) return;   // 難易度チューナーは5クラス専用
     myln::tune_cascade_difficulty(cctx(cas)->cas, cctx(cas)->cas.threshold());
 }
 

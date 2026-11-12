@@ -159,6 +159,43 @@ request text with a few regexes and prints `{"level", "conf", "relay", "features
 
 ---
 
+## Opg — picking a cartridge (dry fire)
+
+**Opg** (Opt + Generative) looks at a request and picks which *cartridge* (specialist) should answer it.
+Think of a revolver: the **magazine** has 6 chambers, each holding a cartridge; Opg only turns the cylinder.
+It generates nothing and runs no model, and it never answers with something that is not in the magazine.
+
+```bash
+echo '{"text":"main.pyのバグを直して"}' | python3 bridge/python/opg.py
+# → {"cartridge": "code", "slot": 2, "conf": 1.0, "runner_up": "general", "level": 1, "path": "relay",
+#    "reason": "コード職人: 「バグ」「.py」 の語、「直して」 の言い回し"}
+python3 bridge/python/opg.py --demo     # dry-fire every example sentence of the loaded cartridges
+```
+
+| Key | Meaning |
+|---|---|
+| `cartridge` / `slot` | the chosen cartridge id and its chamber (0–5) |
+| `conf` / `runner_up` | confidence, and the next-best loaded cartridge |
+| `level` | difficulty 0–4, straight from `difficulty.py` (a separate axis) |
+| `path` | `relay` / `full` = fast path · `embed` = careful path (not implemented yet) · `fallback` = not sure, back to chamber 0 |
+| `reason` | one line: which words decided it |
+
+- **Fast path:** word cues from the name tags → 10 features (strong ×5, weak ×5) → a 6-output MYLN cascade
+  (`configs/opg/cascade.json`, plain `tune_custom`). Chamber 0 (`general`) is a fixed baseline: a specialist
+  is chosen only when its cues clearly beat it; ties and weak evidence fall back to `general`.
+- **Magazine:** `configs/opg/magazine.json` lists the 6 chambers (`null` = empty). Swap it with `--magazine` or `OPG_MAGAZINE`.
+- **Name tags:** `configs/opg/cartridges/<id>.json` — `keywords` / `patterns` (strong cues), `hints` / `hint_patterns`
+  (weak cues), `examples`, plus `base_model` / `lora` / `prompt` for the later "trigger" stage.
+  **Adding a cartridge = adding one name-tag file and putting its id in the magazine.** Opg itself is not rebuilt.
+- **Careful path** (small embedding model compared against `examples`): only the hook `opg.careful_path()` exists; it returns `None`.
+- First six: `0 general` · `1 chat` · `2 code` · `3 research` · `4 doc` · `5 calc`.
+
+```bash
+python3 tests/opg_regression.py
+```
+
+---
+
 ## Generic tuning API (JSON)
 
 Anything the built-in tuners do can be expressed as a JSON file — Router weights (per-slot W, b),
@@ -223,8 +260,10 @@ bridge/
   myln_c_api.h/.cpp    — universal C API
   python/myln.py       — Python ctypes wrapper (MylnFrame, MylnCascade)
   python/difficulty.py — text → 5 features → difficulty level (JSON in/out)
+  python/opg.py        — Opg: text → which cartridge (6 chambers), dry fire only
 
 configs/               — ready-made JSON tunings (difficulty; frame + cascade)
+configs/opg/           — Opg magazine, cartridge name tags, 6-output cascade
 docs/tuning-config.md  — JSON tuning schema
 tests/                 — regression tests + saved baselines
 ```
@@ -272,6 +311,7 @@ Human–AI coexistence shouldn't depend on a data center.
 - [x] Universal C API — Python, Node.js, Ruby, Go, Rust
 - [x] Python bridge — `MylnFrame`, `MylnCascade`
 - [x] Difficulty tuner — `tune_difficulty`
+- [x] Opg — cartridge selection, fast path + dry fire (`bridge/python/opg.py`); careful path and trigger not yet
 - [x] JSON tuning config — `myln_tune_custom` / `tune_custom` ([schema](docs/tuning-config.md))
 - [ ] `.mhead` for *heads* — portable head definitions (weights of non-trivial heads)
 - [ ] CLI tool — `myln run --frame SS --head difficulty.mhead`

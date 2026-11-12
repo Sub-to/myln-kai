@@ -95,6 +95,10 @@ Center Line classifier (W_cls), all loaded from JSON instead of being hard-coded
 
 `relay`/`full` の両方が必須です。リレーの確信度が `threshold` 以上ならそのまま出力、未満ならフルで再判定します。
 
+出口の数(クラス数)は既定で 5 です。5 以外にしたいときは、カスケードを作るときに指定します
+(C: `myln_cascade_new_n(threshold, n_classes)` / C++: `CascadeFrame(threshold, n_classes)` /
+Python: `MylnCascade(threshold, n_classes=6)`)。例: `configs/opg/cascade.json`(Opg の6穴)。
+
 ## 同梱サンプル(`configs/`)
 
 | file | 内容 | 同等のC++ |

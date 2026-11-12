@@ -82,6 +82,9 @@ MYLN_API const char* myln_version  (void);
  * threshold: 確信度の閾値 (0.0〜1.0, 推奨 0.80)
  */
 MYLN_API void*       myln_cascade_new      (float threshold);
+/* 出口の数を指定して作る（myln_cascade_new は 5 固定。Opg の 6穴などは 6 を渡す）。NULL = 失敗 */
+MYLN_API void*       myln_cascade_new_n    (float threshold, int n_classes);
+MYLN_API int         myln_cascade_n_classes(void* cas);
 MYLN_API void        myln_cascade_free     (void* cas);
 /* JSON設定: {"threshold":..., "relay":{...}, "full":{...}}  戻り値は myln_tune_custom と同じ */
 MYLN_API int         myln_cascade_tune_custom(void* cas, const char* path_or_json);

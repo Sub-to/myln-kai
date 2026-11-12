@@ -1,0 +1,18 @@
+{
+  "schema": "opg-cartridge/1",
+  "id": "general",
+  "name": "汎用",
+  "description": "迷ったとき・どれにも当たらないときの戻り先(0番固定)。手がかりは持たない。",
+  "keywords": [],
+  "patterns": [],
+  "hints": [],
+  "hint_patterns": [],
+  "examples": [
+    "これお願い",
+    "ちょっと手伝ってほしい",
+    "どうしたらいいと思う?"
+  ],
+  "base_model": "",
+  "lora": "",
+  "prompt": ""
+}
