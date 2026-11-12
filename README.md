@@ -178,7 +178,7 @@ python3 bridge/python/opg.py --demo     # dry-fire every example sentence of the
 | `cartridge` / `slot` | the chosen cartridge id and its chamber (0–5) |
 | `conf` / `runner_up` | confidence, and the next-best loaded cartridge |
 | `level` | difficulty 0–4, straight from `difficulty.py` (a separate axis) |
-| `path` | `relay` / `full` = fast path · `embed` = careful path · `fallback` = not sure, back to chamber 0 |
+| `path` | `relay` / `full` = fast path · `embed` = careful path · `fallback` = not sure, back to chamber 0 · `hold` = kept the conversation's cartridge |
 | `reason` | one line: which words decided it |
 
 - **Fast path:** word cues from the name tags → 10 features (strong ×5, weak ×5) → a 6-output MYLN cascade
@@ -211,6 +211,20 @@ echo '{"text":"8人で1万2千円を分けると1人あたりは?"}' | python3 b
 # → the 7 dry-fire keys + {"model": "...", "answer": "... 答え: 1,500円", "seconds": 19.1}
 python3 bridge/python/opg_fire.py --dry   # show what would be sent; no model is run
 echo '{"text":"...","cartridge":"code"}' | python3 bridge/python/opg_fire.py   # choose by hand (loaded cartridges only)
+```
+
+- **Not over-rotating** (`opg.hold`): inside a conversation the current cartridge is kept unless there is a clear
+  signal. Vague follow-ups ("もっと短くして", "それで進めて") and one-word acknowledgements ("うん", "ありがとう") stay put;
+  the cylinder turns only when the fast path settles on another specialist by relay (several cues), or the
+  confidence is at least `sticky.switch_conf` (0.9, in `magazine.json`). Dry fire: add `"current":"code"` to the input.
+- **Conversations** (`"session":"name"` in the trigger's input, or `--chat [name]` to talk interactively): earlier turns
+  are sent along (last `history_turns`, default 8), the current cartridge is remembered, and when the cylinder turns the
+  system prompt is swapped while the history is kept. Stored in `configs/opg/.sessions/<name>.json` (git-ignored, local
+  only); a turn is saved only when an answer came back. `"reset": true` (or `/新規` in `--chat`) starts over.
+
+```bash
+python3 bridge/python/opg_fire.py --chat          # talk; each line shows which cartridge answered
+echo '{"text":"もっと短くして","session":"work"}' | python3 bridge/python/opg_fire.py
 ```
 
 ```bash
@@ -336,7 +350,7 @@ Human–AI coexistence shouldn't depend on a data center.
 - [x] Universal C API — Python, Node.js, Ruby, Go, Rust
 - [x] Python bridge — `MylnFrame`, `MylnCascade`
 - [x] Difficulty tuner — `tune_difficulty`
-- [x] Opg — cartridge selection: fast path, careful path, dry fire (`bridge/python/opg.py`), trigger (`bridge/python/opg_fire.py`); LoRA swapping not yet
+- [x] Opg — cartridge selection: fast path, careful path, dry fire (`bridge/python/opg.py`), trigger with conversations (`bridge/python/opg_fire.py`); LoRA swapping not yet
 - [x] JSON tuning config — `myln_tune_custom` / `tune_custom` ([schema](docs/tuning-config.md))
 - [ ] `.mhead` for *heads* — portable head definitions (weights of non-trivial heads)
 - [ ] CLI tool — `myln run --frame SS --head difficulty.mhead`

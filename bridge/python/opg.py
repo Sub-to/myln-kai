@@ -28,6 +28,15 @@ Opg (Opt + Generative) ── リボルバー式カートリッジ選択
   python3 bridge/python/opg.py --fast-only # 丁寧な道を使わない(環境変数 OPG_CAREFUL=0 でも同じ)
 
 path の意味: relay=リレーで即決 / full=フルで決定 / embed=丁寧な道で決定 / fallback=自信なしで汎用に戻した
+             hold=回しすぎない(会話中のカートリッジをそのまま保った)
+
+回しすぎない(hold): 会話中のカートリッジ(current)があるとき、むやみに回さない。
+  - 今回の判定が「汎用」(手がかりなし・あいまい)→ 今のカートリッジを保つ(「それで進めて」「もっと短く」など)
+  - 速い道がリレーで別の専門家に即決した(手がかりが重なっている)→ 回す
+  - それ以外で別の専門家になった(手がかり1つだけ・丁寧な道)→ 自信が switch_conf 以上のときだけ回す。足りなければ保つ
+    (「うん」「ありがとう」のような相づち1語で雑談に回ってしまうのを防ぐ)
+  - 今が汎用なら保つものが無いので、判定どおり
+  echo '{"text":"もっと短くして","current":"code"}' | python3 bridge/python/opg.py   → code のまま(path=hold)
 """
 import json
 import os
@@ -131,6 +140,9 @@ class Magazine:
         self.careful = careful
         self.careful_cfg = {"pooling": str(cf.get("pooling", "mean")), "top_k": int(cf.get("top_k", 2)),
                             "min_score": float(cf.get("min_score", 0.3)), "min_margin": float(cf.get("min_margin", 0.05))}
+        st = spec.get("sticky") or {}
+        self.sticky = bool(st.get("enabled", True))                 # 回しすぎない
+        self.switch_conf = float(st.get("switch_conf", 0.9))        # リレー即決でないときに回すのに要る自信
         self._bank = None
 
     def bank(self):
@@ -232,6 +244,28 @@ def select(text: str, magazine: Magazine, debug: bool = False) -> dict:
     return out
 
 
+def hold(result: dict, current: Optional[str], magazine: Magazine) -> dict:
+    """回しすぎない: select() の結果と、会話中のカートリッジ current(id)から、今回使うものを決める。
+
+    保つときは cartridge/slot を current に戻し、path="hold"、runner_up=今回の判定 にして返す。
+    current が無い・弾倉に入っていない・汎用・回しすぎないが切ってある → 結果をそのまま返す。
+    """
+    cur = next((i for i, c in enumerate(magazine.slots) if c and c.id == current), None)
+    if not magazine.sticky or cur is None or cur == FALLBACK_SLOT or cur == result["slot"]:
+        return result
+    picked = magazine.slots[result["slot"]]
+    if result["slot"] == FALLBACK_SLOT:
+        why = "はっきりした切り替えの合図がないので"
+    elif result["path"] != "relay" and result["conf"] < magazine.switch_conf:
+        why = f"「{picked.name}」かもしれないが自信が足りないので"
+    else:
+        return result                                            # はっきり別の専門家 → 回す
+    out = dict(result)
+    out.update({"cartridge": current, "slot": cur, "runner_up": picked.id, "path": "hold",
+                "reason": f"{why}「{magazine.slots[cur].name}」のまま(今回の判定: {picked.name})"})
+    return out
+
+
 if __name__ == "__main__":
     args = sys.argv[1:]
     mag_path = args[args.index("--magazine") + 1] if "--magazine" in args else None
@@ -247,4 +281,5 @@ if __name__ == "__main__":
                 print(("○" if r["cartridge"] == cart.id else "×"), f"{r['slot']} {r['cartridge']:<9}{r['conf']:.2f} {r['path']:<9}", ex)
         sys.exit(0)
     req = json.loads(sys.stdin.read() or "{}")
-    print(json.dumps(select(str(req.get("text", "")), mag, debug="--debug" in args), ensure_ascii=False))
+    res = select(str(req.get("text", "")), mag, debug="--debug" in args)
+    print(json.dumps(hold(res, req.get("current"), mag), ensure_ascii=False))

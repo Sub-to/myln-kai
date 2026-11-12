@@ -8,3 +8,4 @@ __pycache__/
 .DS_Store
 configs/opg/local.json
 configs/opg/.cache/
+configs/opg/.sessions/

@@ -20,6 +20,8 @@ Opg(リボルバー式カートリッジ選択)回帰テスト
      モデルが無いときは飛ばす(速い道だけで動くことは 1〜10 で確認済み)
  12. 引き金(opg_fire.py): にせの手元サーバーに対して、選んだ名札の指示書が送られること、
      自分のMac以外の宛先・未設定・空の入力では何も送らないこと。本物のモデルは動かさない
+ 13. 回しすぎない(opg.hold): あいまいな続きは今のカートリッジを保ち、はっきり別の専門家なら回す
+ 14. 会話の続き(session): これまでのやり取りが送られ、保存・読み直し・やり直しができ、失敗した回は保存しない
 
 1〜10 は丁寧な道を切って(速い道だけで)確認する。モデルは一切動かさない。
 """
@@ -309,6 +311,106 @@ finally:
     srv.server_close()
 r = opg_fire.fire("こんにちは", mag, cfg)
 check("error" in r and "answer" not in r, "fire: server not running -> error (no crash)")
+
+print("[13] not over-rotating (opg.hold) -- fast path only, no model")
+def sel(text, current):
+    return opg.hold(opg.select(text, mag), current, mag)
+
+r = sel("もっと短くして", "code")
+check(r["cartridge"] == "code" and r["slot"] == 2 and r["path"] == "hold" and r["runner_up"] == "general" and sorted(r) == KEYS,
+      "hold: a vague follow-up keeps the current cartridge (same 7 keys)")
+check(all(sel(t, "calc")["cartridge"] == "calc" for t in ("それで進めて", "うん", "つづけて", "")),
+      "hold: short replies keep the current cartridge")
+r = sel("お礼のメールを書いて", "code")
+check(r["cartridge"] == "doc" and r["path"] == "relay", "hold: clear word cues for another specialist -> rotate")
+r = sel("ありがとう", "code")
+check(r["cartridge"] == "code" and r["path"] == "hold" and r["runner_up"] == "chat", "hold: a one-word acknowledgement does not rotate to chat")
+check(sel("main.pyのバグを直して", "code")["path"] == "relay", "hold: same cartridge again -> unchanged result")
+for cur in (None, "", "general", "no-such"):
+    check(sel("もっと短くして", cur) == opg.select("もっと短くして", mag), f"hold: current={cur!r} -> plain selection")
+fake = {"cartridge": "chat", "slot": 1, "conf": 0.85, "runner_up": "general", "level": 0, "path": "embed", "reason": "x"}
+check(opg.hold(dict(fake), "code", mag)["cartridge"] == "code", "hold: careful path below switch_conf -> keep")
+check(opg.hold({**fake, "conf": 0.95}, "code", mag)["cartridge"] == "chat", "hold: careful path at/above switch_conf -> rotate")
+mag.sticky = False
+check(sel("もっと短くして", "code")["cartridge"] == "general", "hold: switched off in the magazine -> plain selection")
+mag.sticky = True
+m3 = None
+tmp = Path(tempfile.mkdtemp(prefix="opg-test-"))
+try:
+    shutil.copytree(ROOT / "configs" / "opg", tmp / "opg", ignore=shutil.ignore_patterns(".cache", ".sessions", "local.json"))
+    spec = json.loads((tmp / "opg/magazine.json").read_text(encoding="utf-8"))
+    (tmp / "opg/m.json").write_text(json.dumps({**spec, "slots": ["general", None, None, None, "doc", None]},
+                                               ensure_ascii=False), encoding="utf-8")
+    m3 = opg.Magazine(tmp / "opg/m.json", careful=False)
+    r = opg.hold(opg.select("もっと短くして", m3), "code", m3)
+    check(r["cartridge"] in ("general", "doc"), "hold: a current cartridge that is no longer loaded is never returned")
+
+    print("[14] conversation (session) against a fake local server -- no model is run")
+    seen.clear()
+    srv = HTTPServer(("127.0.0.1", 0), Fake)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    cfg = {**opg_fire.DEFAULTS, "endpoint": f"http://127.0.0.1:{srv.server_port}/v1", "model": "body-model", "timeout": 5}
+    sdir = tmp / "opg"
+    try:
+        s1 = opg_fire.Session(sdir, "t1")
+        r = opg_fire.fire("main.pyのバグを直して", mag, cfg, session=s1)
+        check(r["cartridge"] == "code" and r["turn"] == 1 and len(seen[-1][1]["messages"]) == 2, "session: first turn has no history")
+        r = opg_fire.fire("もっと短くして", mag, cfg, session=s1)
+        msgs = seen[-1][1]["messages"]
+        check(r["cartridge"] == "code" and r["path"] == "hold" and r["turn"] == 2, "session: follow-up stays on the same cartridge")
+        check([m["role"] for m in msgs] == ["system", "user", "assistant", "user"] and msgs[0]["content"] == mag.slots[2].tag["prompt"]
+              and msgs[1]["content"] == "main.pyのバグを直して" and msgs[2]["content"] == "pong" and msgs[3]["content"] == "もっと短くして",
+              "session: earlier turns are sent, with the current cartridge's prompt")
+        s2 = opg_fire.Session(sdir, "t1")                       # 別のプロセスから読み直したのと同じ
+        check(s2.current == "code" and len(s2.turns) == 2, "session: saved to disk and loaded again")
+        r = opg_fire.fire("お礼のメールを書いて", mag, cfg, session=s2)
+        msgs = seen[-1][1]["messages"]
+        check(r["cartridge"] == "doc" and msgs[0]["content"] == mag.slots[4].tag["prompt"] and len(msgs) == 6
+              and sum(m["role"] == "system" for m in msgs) == 1, "session: rotating swaps the prompt, keeps the history")
+        check(opg_fire.Session(sdir, "t1").current == "doc", "session: the new cartridge becomes the current one")
+        r = opg_fire.fire("それで進めて", mag, cfg, manual="calc", session=s2)
+        check(r["cartridge"] == "calc" and opg_fire.Session(sdir, "t1").current == "calc", "session: manual choice becomes the current one")
+        n, saved = len(seen), len(opg_fire.Session(sdir, "t1").turns)
+        opg_fire.fire("こんにちは", mag, cfg, session=s2, dry=True)
+        opg_fire.fire("EMPTY", mag, cfg, session=s2)
+        opg_fire.fire("こんにちは", mag, {**cfg, "endpoint": "http://example.com/v1"}, session=s2)
+        check(len(opg_fire.Session(sdir, "t1").turns) == saved, "session: dry run / failed turns are not saved")
+        check(len(opg_fire.Session(sdir, "t2").turns) == 0 and opg_fire.Session(sdir, "t2").current == "", "session: another name is a separate conversation")
+        check(len(opg_fire.Session(sdir, "t1", reset=True).turns) == 0, "session: reset starts over")
+        s3 = opg_fire.Session(sdir, "t3")
+        for i in range(5):
+            opg_fire.fire(f"main.pyのバグを直して {i}", mag, {**cfg, "history_turns": 2}, session=s3)
+        msgs = seen[-1][1]["messages"]
+        check(len(msgs) == 1 + 2 * 2 + 1 and msgs[1]["content"].endswith(" 2") and len(s3.turns) == 5,
+              "session: only the last history_turns turns are sent; all are kept on disk")
+        for bad in ("../x", "a/b", "", "a b", "x" * 65, "..", "a.json"):
+            try:
+                opg_fire.Session(sdir, bad)
+                check(False, f"session name {bad!r} should be refused")
+            except opg_fire.FireError:
+                check(True, f"session name {bad!r} refused")
+        check(sorted(p.name for p in (sdir / ".sessions").iterdir()) == ["t1.json", "t3.json"]
+              and not list(tmp.glob("*.json")), "session: files only inside .sessions/")
+        (sdir / ".sessions" / "broken.json").write_text("{", encoding="utf-8")
+        try:
+            opg_fire.Session(sdir, "broken")
+            check(False, "broken session file should raise")
+        except opg_fire.FireError:
+            check(True, "broken session file -> error (not silently overwritten)")
+        env = {**os.environ, "OPG_FIRE_ENDPOINT": cfg["endpoint"], "OPG_FIRE_MODEL": "body-model"}
+        outs = []
+        for t in ("main.pyのバグを直して", "もっと短くして"):
+            p = subprocess.run([sys.executable, str(ROOT / "bridge/python/opg_fire.py"), "--magazine", str(sdir / "magazine.json")],
+                               input=json.dumps({"text": t, "session": "cli"}), capture_output=True, text=True, env=env)
+            outs.append(json.loads(p.stdout))
+        check(outs[1]["cartridge"] == "code" and outs[1]["path"] == "hold" and outs[1]["turn"] == 2 and outs[1]["answer"] == "pong",
+              "command: two runs with the same session continue the conversation")
+        check(not (ROOT / "configs/opg/.sessions/cli.json").exists(), "command: the test left nothing in the real .sessions/")
+    finally:
+        srv.shutdown()
+        srv.server_close()
+finally:
+    shutil.rmtree(tmp, ignore_errors=True)
 
 print()
 if failures:

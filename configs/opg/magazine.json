@@ -21,5 +21,9 @@
     "top_k": 2,
     "min_score": 0.3,
     "min_margin": 0.08
+  },
+  "sticky": {
+    "enabled": true,
+    "switch_conf": 0.9
   }
 }
