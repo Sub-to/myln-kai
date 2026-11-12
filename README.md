@@ -159,11 +159,12 @@ request text with a few regexes and prints `{"level", "conf", "relay", "features
 
 ---
 
-## Opg — picking a cartridge (dry fire)
+## Opg — picking a cartridge (dry fire) and pulling the trigger
 
 **Opg** (Opt + Generative) looks at a request and picks which *cartridge* (specialist) should answer it.
 Think of a revolver: the **magazine** has 6 chambers, each holding a cartridge; Opg only turns the cylinder.
-It generates nothing, and it never answers with something that is not in the magazine.
+`opg.py` generates nothing (a dry fire), and it never answers with something that is not in the magazine.
+`opg_fire.py` is the **trigger**: it sends the request to a local model with the chosen cartridge's instructions.
 
 ```bash
 echo '{"text":"main.pyのバグを直して"}' | python3 bridge/python/opg.py
@@ -185,7 +186,7 @@ python3 bridge/python/opg.py --demo     # dry-fire every example sentence of the
   is chosen only when its cues clearly beat it; ties and weak evidence fall back to `general`.
 - **Magazine:** `configs/opg/magazine.json` lists the 6 chambers (`null` = empty). Swap it with `--magazine` or `OPG_MAGAZINE`.
 - **Name tags:** `configs/opg/cartridges/<id>.json` — `keywords` / `patterns` (strong cues), `hints` / `hint_patterns`
-  (weak cues), `examples`, plus `base_model` / `lora` / `prompt` for the later "trigger" stage.
+  (weak cues), `examples`, plus `prompt` / `base_model` for the trigger (`lora` is reserved, not used yet).
   **Adding a cartridge = adding one name-tag file and putting its id in the magazine.** Opg itself is not rebuilt.
 - **Careful path** (`bridge/python/opg_embed.py`): when the fast path cannot settle on a specialist, the request is
   compared with the `examples` of the loaded name tags using embeddings from a small **local** GGUF model
@@ -197,8 +198,23 @@ python3 bridge/python/opg.py --demo     # dry-fire every example sentence of the
   (Qwen2.5-0.5B embeddings, about 1 s per request that reaches it); ambiguous sentences stay on `general`.
 - First six: `0 general` · `1 chat` · `2 code` · `3 research` · `4 doc` · `5 calc`.
 
+- **Trigger** (`bridge/python/opg_fire.py`): picks a cartridge, puts that name tag's `prompt` in as the system
+  message and posts to a **local** OpenAI-compatible server (`/v1/chat/completions`, e.g. llama.cpp's `llama-server`).
+  Only `127.0.0.1` / `localhost` endpoints are accepted — anything else is refused and nothing is sent.
+  It never starts a server itself; if none is running you get an `error` and exit code 2.
+  Settings live in `configs/opg/local.json` under `"fire"` (`endpoint`, `model`, `max_tokens`, `timeout`, `extra`),
+  or `OPG_FIRE_ENDPOINT` / `OPG_FIRE_MODEL`. A name tag's `base_model` overrides the model for that cartridge.
+  `extra` is merged into the request (e.g. `{"reasoning_effort": "none"}`).
+
 ```bash
-python3 tests/opg_regression.py
+echo '{"text":"8人で1万2千円を分けると1人あたりは?"}' | python3 bridge/python/opg_fire.py
+# → the 7 dry-fire keys + {"model": "...", "answer": "... 答え: 1,500円", "seconds": 19.1}
+python3 bridge/python/opg_fire.py --dry   # show what would be sent; no model is run
+echo '{"text":"...","cartridge":"code"}' | python3 bridge/python/opg_fire.py   # choose by hand (loaded cartridges only)
+```
+
+```bash
+python3 tests/opg_regression.py   # the trigger is tested against a fake local server; no model is run
 ```
 
 ---
@@ -269,6 +285,7 @@ bridge/
   python/difficulty.py — text → 5 features → difficulty level (JSON in/out)
   python/opg.py        — Opg: text → which cartridge (6 chambers), dry fire only
   python/opg_embed.py  — Opg careful path: nearest example sentences via a local embedding model
+  python/opg_fire.py   — Opg trigger: chosen cartridge's prompt + request → local model → answer
 
 configs/               — ready-made JSON tunings (difficulty; frame + cascade)
 configs/opg/           — Opg magazine, cartridge name tags, 6-output cascade
@@ -319,7 +336,7 @@ Human–AI coexistence shouldn't depend on a data center.
 - [x] Universal C API — Python, Node.js, Ruby, Go, Rust
 - [x] Python bridge — `MylnFrame`, `MylnCascade`
 - [x] Difficulty tuner — `tune_difficulty`
-- [x] Opg — cartridge selection: fast path, careful path, dry fire (`bridge/python/opg.py`); trigger not yet
+- [x] Opg — cartridge selection: fast path, careful path, dry fire (`bridge/python/opg.py`), trigger (`bridge/python/opg_fire.py`); LoRA swapping not yet
 - [x] JSON tuning config — `myln_tune_custom` / `tune_custom` ([schema](docs/tuning-config.md))
 - [ ] `.mhead` for *heads* — portable head definitions (weights of non-trivial heads)
 - [ ] CLI tool — `myln run --frame SS --head difficulty.mhead`

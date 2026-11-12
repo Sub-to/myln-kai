@@ -75,7 +75,8 @@
     "```",
     "\\.(?:py|ts|js|tsx|swift|cpp|c|h|rs|go|html|css|json|yaml|yml|sh|toml|csv)(?![a-z0-9_])",
     "[\\w.~-]+/[\\w.-]+/[\\w./-]*",
-    "[a-z]+(?:error|exception)"
+    "[a-z]+(?:error|exception)",
+    "(?:for|if|while|switch|select|sql)文"
   ],
   "hints": [
     "ファイル",
@@ -139,5 +140,5 @@
   ],
   "base_model": "",
   "lora": "",
-  "prompt": ""
+  "prompt": "あなたはプログラミングの職人です。日本語で答えます。まず原因や方針を一言で述べ、次に動くコードをコードブロックで示し、最後に確かめ方を短く書いてください。推測した部分は推測だと明記します。"
 }

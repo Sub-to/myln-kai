@@ -8,7 +8,7 @@ Opg(リボルバー式カートリッジ選択)回帰テスト
   1. 名札の例文(configs/opg/cartridges/*.json の examples)が全部、自分の穴に当たる
   2. 調整に使った文(tests/opg_cases.json の tuning / tuning2)が全部当たる
   3. あいまいな文(ambiguous)は 0番「汎用」に落ちる
-  4. 調整に使っていない文(holdout / holdout2)の正解数が下がっていない(速い道だけで 20/40・16/40。外れは汎用に落ちるのが大半)
+  4. 調整に使っていない文(holdout / holdout2)の正解数が下がっていない(速い道だけで 21/40・16/40。外れは汎用に落ちるのが大半)
   5. 空撃ちコマンド(stdin JSON → python3 opg.py)が決まった7つのキーだけを返す
   6. 難易度(level)は difficulty.py の判定と同じ
   7. 弾倉に無い答えは絶対に返さない(穴を空にした弾倉・でたらめな入力でも)
@@ -18,6 +18,8 @@ Opg(リボルバー式カートリッジ選択)回帰テスト
  11. 丁寧な道(例文との近さ。configs/opg/local.json か OPG_EMBED_MODEL に手元のモデルがあるときだけ実行):
      holdout2 が 29/40 以上(現在 31/40)、あいまいな文は汎用のまま、弾倉に無い答えは返さない。
      モデルが無いときは飛ばす(速い道だけで動くことは 1〜10 で確認済み)
+ 12. 引き金(opg_fire.py): にせの手元サーバーに対して、選んだ名札の指示書が送られること、
+     自分のMac以外の宛先・未設定・空の入力では何も送らないこと。本物のモデルは動かさない
 
 1〜10 は丁寧な道を切って(速い道だけで)確認する。モデルは一切動かさない。
 """
@@ -241,6 +243,72 @@ else:
     p = run_opg("富士山の高さは?", env={**os.environ, "OPG_CAREFUL": "1"})
     print("      ->", p.stdout.strip())
     check(p.returncode == 0 and sorted(json.loads(p.stdout)) == KEYS, "command with the careful path: exit 0 and 7 keys")
+
+print("[12] trigger (opg_fire.py) against a fake local server -- no model is run")
+import threading  # noqa: E402
+from http.server import BaseHTTPRequestHandler, HTTPServer  # noqa: E402
+import opg_fire  # noqa: E402
+
+seen = []
+
+
+class Fake(BaseHTTPRequestHandler):
+    def do_POST(self):
+        body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+        seen.append((self.path, body))
+        reply = {"choices": [{"message": {"content": "" if body["messages"][-1]["content"] == "EMPTY" else " pong "}}]}
+        data = json.dumps(reply).encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+
+    def log_message(self, *a):
+        pass
+
+
+srv = HTTPServer(("127.0.0.1", 0), Fake)
+threading.Thread(target=srv.serve_forever, daemon=True).start()
+cfg = {**opg_fire.DEFAULTS, "endpoint": f"http://127.0.0.1:{srv.server_port}/v1", "model": "body-model", "timeout": 5}
+try:
+    r = opg_fire.fire("main.pyのバグを直して", mag, cfg)
+    path, body = seen[-1]
+    code_prompt = mag.slots[2].tag["prompt"]
+    check(r.get("answer") == "pong" and r["cartridge"] == "code" and "error" not in r and r["model"] == "body-model",
+          "fire: picks code, sends, returns the answer")
+    check(path == "/v1/chat/completions" and body["messages"][0] == {"role": "system", "content": code_prompt}
+          and body["messages"][-1] == {"role": "user", "content": "main.pyのバグを直して"} and body["model"] == "body-model",
+          "fire: the chosen cartridge's prompt is the system message")
+    check(all(c.tag.get("prompt") for c in mag.slots), "every loaded cartridge has a prompt")
+    check(set(KEYS) <= set(r), "fire: keeps the 7 dry-fire keys")
+    r = opg_fire.fire("main.pyのバグを直して", mag, cfg, manual="calc")
+    check(r["cartridge"] == "calc" and r["path"] == "manual" and r["runner_up"] == "code"
+          and seen[-1][1]["messages"][0]["content"] == mag.slots[5].tag["prompt"], "fire: manual choice uses that cartridge's prompt")
+    n = len(seen)
+    r = opg_fire.fire("こんにちは", mag, cfg, manual="no-such")
+    check("error" in r and "answer" not in r and len(seen) == n, "fire: manual choice not in the magazine -> error, nothing sent")
+    r = opg_fire.fire("こんにちは", mag, cfg, dry=True)
+    check("request" in r and "answer" not in r and len(seen) == n, "fire --dry: shows the request, sends nothing")
+    for bad in ("http://example.com/v1", "http://192.168.1.202:11434/v1", "http://127.0.0.1.example.com/v1", "ftp://127.0.0.1/v1", ""):
+        r = opg_fire.fire("こんにちは", mag, {**cfg, "endpoint": bad})
+        check("error" in r and "answer" not in r and len(seen) == n, f"fire: endpoint {bad!r} refused, nothing sent")
+    r = opg_fire.fire("こんにちは", mag, {**cfg, "model": ""})
+    check("error" in r and len(seen) == n, "fire: no model configured -> error, nothing sent")
+    r = opg_fire.fire("   ", mag, cfg)
+    check("error" in r and len(seen) == n, "fire: empty text -> error, nothing sent")
+    r = opg_fire.fire("EMPTY", mag, cfg)
+    check("error" in r and "answer" not in r, "fire: empty answer from the model -> error")
+    mag.slots[2].tag["base_model"], mag.slots[2].tag["lora"] = "code-model", "x.gguf"
+    r = opg_fire.fire("main.pyのバグを直して", mag, {**cfg, "extra": {"reasoning_effort": "none"}})
+    check(r["model"] == "code-model" and seen[-1][1]["model"] == "code-model" and seen[-1][1]["reasoning_effort"] == "none"
+          and "note" in r, "fire: name tag base_model overrides the model; extra is passed; lora is noted as unused")
+    mag.slots[2].tag["base_model"], mag.slots[2].tag["lora"] = "", ""
+finally:
+    srv.shutdown()
+    srv.server_close()
+r = opg_fire.fire("こんにちは", mag, cfg)
+check("error" in r and "answer" not in r, "fire: server not running -> error (no crash)")
 
 print()
 if failures:

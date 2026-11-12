@@ -1,4 +1,11 @@
 {
-  "_comment": "このファイルを local.json という名前でコピーし、手元の小型モデル(GGUF)の場所を書くと『丁寧な道』が有効になる。local.json は Git に入れない。",
-  "embed_model": "~/models/some-small-model.gguf"
+  "_comment": "このファイルを local.json という名前でコピーして使う(local.json は Git に入れない)。embed_model=『丁寧な道』に使う手元の小型モデル(GGUF)。fire=『引き金』の送り先(自分のMacの中で動いている OpenAI 互換サーバー。127.0.0.1 / localhost のみ)。",
+  "embed_model": "~/models/some-small-model.gguf",
+  "fire": {
+    "endpoint": "http://127.0.0.1:8080/v1",
+    "model": "your-local-model",
+    "max_tokens": 1024,
+    "timeout": 300,
+    "extra": {}
+  }
 }
