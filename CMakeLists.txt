@@ -21,6 +21,4 @@ set_target_properties(myln PROPERTIES
 )
 
 # ── デモ実行ファイル ──────────────────────────────────────
-add_executable(hello_myln     examples/hello_myln.cpp)
-add_executable(chibitaru_demo examples/chibitaru_demo.cpp)
 add_executable(difficulty_demo examples/difficulty_demo.cpp)

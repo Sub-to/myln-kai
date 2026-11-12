@@ -9,10 +9,9 @@ MYLN-FRAME 回帰テスト
   1. difficulty.py(Pi拡張と同じ呼び出し)の出力が
        a. 期待レンジ(tests/baseline/difficulty_cases.json の tuning 全件)に入る
        b. 整理後の基準 tests/baseline/difficulty_baseline_v1.json と level / relay / features / conf が一致
-     ※ tests/baseline/difficulty_baseline.json は 2026-10-03 の整理前(security流用版)の記録。履歴として保存のみ。
+     ※ tests/baseline/difficulty_baseline.json は 2026-10-03 の整理前の記録。履歴として保存のみ。
   2. holdout(調整に使っていない文)の合格数が下がっていない(現在 12/15)
-  3. C++ チューナー ⇔ JSON 設定 が同じ確率を返す(security / difficulty, Frame / Cascade)
-  4. security の確率ベクトルが基準と一致
+  3. C++ チューナー ⇔ JSON 設定 が同じ確率を返す(difficulty, Frame / Cascade)
   5. 不正な設定はエラーになり、frame は変更されない(部分適用なし)
   6. Pi 拡張と同じ呼び出し(stdin JSON → python3 difficulty.py)が従来のキーで返る
 """
@@ -83,12 +82,12 @@ probe = [[0, 0.05, 0.01, 0, 0.1], [0.1, 0.3, 0.4, 0.05, 0.25], [0.2, 0.2, 0.9, 0
          [0.33, 0, 0, 0, 0.67], [0.67, 0.14, 1, 1, 1], [1, 0.1, 0, 0.5, 1], [0.5, 0.5, 0.5, 0.5, 0.5]]
 cfgdir = ROOT / "configs"
 for size in ("T", "SS"):
-    for cpp, js in (("tune_security", "security.json"), ("tune_difficulty", "difficulty.json")):
+    for cpp, js in (("tune_difficulty", "difficulty.json"),):
         a = getattr(MylnFrame(size, 5), cpp)()
         b = MylnFrame(size, 5).tune_custom(cfgdir / js)
         d = max(maxdiff(a.infer(x), b.infer(x)) for x in probe)
         check(d == 0.0, f"Frame {size} {cpp} vs {js}: max diff {d}")
-for cpp, js in (("tune_security", "security_cascade.json"), ("tune_difficulty", "difficulty_cascade.json")):
+for cpp, js in (("tune_difficulty", "difficulty_cascade.json"),):
     a = getattr(MylnCascade(0.8), cpp)()
     b = MylnCascade(0.8).tune_custom(cfgdir / js)
     d, same = 0.0, True
@@ -97,21 +96,9 @@ for cpp, js in (("tune_security", "security_cascade.json"), ("tune_difficulty", 
         d = max(d, maxdiff(pa, pb)); same &= (ra == rb)
     check(d == 0.0 and same, f"Cascade {cpp} vs {js}: max diff {d}, same relay path={same}")
 
-# ── 4: security 基準 ───────────────────────────────────────
-print("[4] security vs saved baseline")
-sb = json.loads((ROOT / "tests/baseline/security_baseline.json").read_text())
-fT, fS, cas = MylnFrame("T", 5).tune_security(), MylnFrame("SS", 5).tune_security(), MylnCascade(0.8).tune_security()
-d = 0.0
-for i, x in enumerate(sb["inputs"]):
-    d = max(d, maxdiff(fT.infer(x), sb["frame_T"][i]), maxdiff(fS.infer(x), sb["frame_SS"][i]))
-    p, r = cas.infer(x)
-    d = max(d, maxdiff(p, sb["cascade"][i]["probs"]))
-    check(r == sb["cascade"][i]["relay"], f"cascade relay path input#{i}")
-check(d == 0.0, f"security probs unchanged (max diff {d})")
-
 # ── 5: 不正な設定 ─────────────────────────────────────────
 print("[5] invalid configs are rejected without partial application")
-f = MylnFrame("T", 5).tune_security()
+f = MylnFrame("T", 5).tune_difficulty()
 before = [f.infer(x) for x in probe]
 good_router = {"normalize": False, "slots": [{"terms": [[0, 0, 50.0]]}, {}, {}, {}]}
 bad_cfgs = {

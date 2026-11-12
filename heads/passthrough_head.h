@@ -4,7 +4,7 @@
 namespace myln {
 
 // ── PassthroughHead ────────────────────────────────────────
-// ルーターが出力した脅威信号をそのまま通す（恒等写像）。
+// ルーターが出力した信号をそのまま通す（恒等写像）。
 // チューニング時に使用: 信号が他の層で変形されないようにする。
 class PassthroughHead : public Head {
     std::string name_;

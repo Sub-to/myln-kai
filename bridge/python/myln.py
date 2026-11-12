@@ -8,11 +8,11 @@ Usage:
     from myln import MylnFrame
 
     frame = MylnFrame(size="T", n_classes=5)
-    frame.tune_security(in_dim=5)
+    frame.tune_difficulty()
 
-    probs  = frame.infer([0.9, 0.95, 0.8, 0.99, 0.85])
-    label  = frame.predict([0.9, 0.95, 0.8, 0.99, 0.85])
-    print(label)  # → CRITICAL
+    probs  = frame.infer([0.67, 0.05, 0.0, 0.0, 0.67])   # [tech, length, steps, scope, reasoning]
+    label  = frame.predict([0.67, 0.05, 0.0, 0.0, 0.67])
+    print(label)  # → MEDIUM など
 """
 
 import ctypes
@@ -50,6 +50,11 @@ DIFFICULTY_CLASSES_JA = ["雑談", "易", "中", "難", "最難"]
 DIFFICULTY_FEATURES   = ["tech", "length", "steps", "scope", "reasoning"]
 
 
+def _default_labels(n: int) -> list:
+    """クラス名が決まっていないときの仮ラベル。"""
+    return [f"class{i}" for i in range(n)]
+
+
 # ── C API バインディング ──────────────────────────────────
 class _CAPI:
     def __init__(self, lib_path: Optional[str] = None):
@@ -61,9 +66,6 @@ class _CAPI:
 
         lib.myln_free.restype  = None
         lib.myln_free.argtypes = [ctypes.c_void_p]
-
-        lib.myln_tune_security.restype  = None
-        lib.myln_tune_security.argtypes = [ctypes.c_void_p, ctypes.c_int]
 
         lib.myln_infer.restype  = ctypes.POINTER(ctypes.c_float)
         lib.myln_infer.argtypes = [
@@ -87,8 +89,6 @@ class _CAPI:
         lib.myln_cascade_new.argtypes = [ctypes.c_float]
         lib.myln_cascade_free.restype  = None
         lib.myln_cascade_free.argtypes = [ctypes.c_void_p]
-        lib.myln_cascade_tune_security.restype  = None
-        lib.myln_cascade_tune_security.argtypes = [ctypes.c_void_p, ctypes.c_int]
         lib.myln_cascade_infer.restype  = ctypes.POINTER(ctypes.c_float)
         lib.myln_cascade_infer.argtypes = [
             ctypes.c_void_p, ctypes.POINTER(ctypes.c_float),
@@ -151,8 +151,6 @@ class MylnFrame:
     どのプラットフォームでも ctypes だけで動く量産型ブリッジ。
     """
 
-    SECURITY_CLASSES = ["SAFE", "LOW", "MEDIUM", "HIGH", "CRITICAL"]
-
     def __init__(
         self,
         size: str = "T",
@@ -173,11 +171,6 @@ class MylnFrame:
             self._handle = None
 
     # ── チューニング ────────────────────────────────────────
-    def tune_security(self, in_dim: int = 5) -> "MylnFrame":
-        """セキュリティ監視用に重みを手動チューニングする。"""
-        self._api.lib.myln_tune_security(self._handle, in_dim)
-        return self  # メソッドチェーン用
-
     def tune_difficulty(self) -> "MylnFrame":
         """
         依頼文の難易度判定用にチューニングする（n_classes=5 のフレームで使う）。
@@ -205,8 +198,7 @@ class MylnFrame:
     def infer(self, features: list) -> list:
         """
         特徴量リストを渡してクラス確率を返す。
-        features: [proc_anomaly, cpu_spike, net_bytes, file_change, mem_pressure]
-                  すべて 0.0〜1.0
+        features: チューニングで決めた入力(各 0.0〜1.0)。self.features に名前が入る。
         """
         n_in  = len(features)
         arr   = (ctypes.c_float * n_in)(*features)
@@ -218,14 +210,14 @@ class MylnFrame:
 
     def predict(self, features: list, classes: Optional[list] = None) -> str:
         """最も確率の高いクラス名を返す。"""
-        labels = classes or self.classes or self.SECURITY_CLASSES
         probs  = self.infer(features)
+        labels = classes or self.classes or _default_labels(len(probs))
         return labels[probs.index(max(probs))]
 
     def predict_with_score(self, features: list, classes: Optional[list] = None):
         """(クラス名, 確率) のタプルを返す。"""
-        labels = classes or self.classes or self.SECURITY_CLASSES
         probs  = self.infer(features)
+        labels = classes or self.classes or _default_labels(len(probs))
         best   = probs.index(max(probs))
         return labels[best], probs[best]
 
@@ -253,14 +245,13 @@ class MylnFrame:
 class MylnCascade:
     """
     2段カスケード分類器。
-    リレー（SS 2頭: proc+file）で高速判定 →
+    リレー（SS 2頭）で高速判定 →
     確信度が低ければ フル（T 4頭）へ。
 
     Usage:
-        cas = MylnCascade(threshold=0.80).tune_security()
-        label, used_relay = cas.predict_with_path([0.9,0.95,0.8,0.99,0.85])
+        cas = MylnCascade(threshold=0.80).tune_difficulty()
+        label, conf, used_relay = cas.predict_with_path([0.67,0.05,0.0,0.0,0.67])
     """
-    SECURITY_CLASSES = ["SAFE", "LOW", "MEDIUM", "HIGH", "CRITICAL"]
 
     def __init__(self, threshold: float = 0.80, lib_path: Optional[str] = None):
         self._api    = _CAPI(lib_path)
@@ -273,10 +264,6 @@ class MylnCascade:
     def __del__(self):
         if hasattr(self, "_handle") and self._handle:
             self._api.lib.myln_cascade_free(self._handle)
-
-    def tune_security(self, in_dim: int = 5) -> "MylnCascade":
-        self._api.lib.myln_cascade_tune_security(self._handle, in_dim)
-        return self
 
     def tune_difficulty(self) -> "MylnCascade":
         """
@@ -312,13 +299,13 @@ class MylnCascade:
 
     def predict(self, features: list) -> str:
         probs, _ = self.infer(features)
-        return (self.classes or self.SECURITY_CLASSES)[probs.index(max(probs))]
+        return (self.classes or _default_labels(len(probs)))[probs.index(max(probs))]
 
     def predict_with_path(self, features: list) -> tuple:
         """(クラス名, 確信度, リレー使用?) を返す"""
         probs, used_relay = self.infer(features)
         best = probs.index(max(probs))
-        return (self.classes or self.SECURITY_CLASSES)[best], probs[best], used_relay
+        return (self.classes or _default_labels(len(probs)))[best], probs[best], used_relay
 
     @property
     def relay_rate(self) -> float:

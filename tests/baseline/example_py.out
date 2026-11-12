@@ -1,9 +1,0 @@
-[MYLN-T] v0.1.0 ready
-
-  ✅ アイドル                 → SAFE     (59%)
-  🔵 通常トラフィック             → LOW      (46%)
-  🟡 ポートスキャン              → MEDIUM   (46%)
-  🔴 大量ファイル書き込み           → HIGH     (46%)
-  💀 ランサムウェア              → CRITICAL (53%)
-
-[MYLN-SS] ランサムウェア → CRITICAL

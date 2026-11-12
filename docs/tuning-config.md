@@ -99,8 +99,6 @@ Center Line classifier (W_cls), all loaded from JSON instead of being hard-coded
 
 | file | 内容 | 同等のC++ |
 |---|---|---|
-| `security.json` | セキュリティ監視(Frame) | `tune_security()` |
-| `security_cascade.json` | セキュリティ監視(Cascade) | `tune_cascade_security()` |
 | `difficulty.json` | 依頼文の難易度(Frame) | `tune_difficulty()` |
 | `difficulty_cascade.json` | 依頼文の難易度(Cascade) | `tune_cascade_difficulty()` |
 
@@ -125,4 +123,4 @@ Center Line classifier (W_cls), all loaded from JSON instead of being hard-coded
 
 (x が小さいとクラス0、大きいとクラス1。境界は x≈1.3 付近で、`W_cls` の得点の交点(x=0.5)ではない。
 Center Line がスロットをアテンションで平均するため、使うスロットが1つだと agg[0] が x より小さくなるからです。
-境界を狙って決めたいときは `security.json` のように4スロットを揃えて使い、実際の確率を `infer()` で確かめてください。)
+境界を狙って決めたいときは `difficulty.json` のように4スロットを揃えて使い、実際の確率を `infer()` で確かめてください。)

@@ -2,7 +2,6 @@
 #include "../include/myln/frame.h"
 #include "../include/myln/cascade.h"
 #include "../include/myln/tune_config.h"
-#include "../tuner/security_tuner.h"
 #include "../tuner/difficulty_tuner.h"
 #include <memory>
 #include <string>
@@ -40,12 +39,6 @@ void myln_free(void* frame) {
 }
 
 // ── チューニング ──────────────────────────────────────────
-void myln_tune_security(void* frame, int in_dim) {
-    myln::SecurityTuneParams p;
-    p.in_dim = in_dim;
-    myln::tune_security(*ctx(frame)->frame, p);
-}
-
 void myln_tune_difficulty(void* frame) {
     myln::tune_difficulty(*ctx(frame)->frame);
 }
@@ -95,11 +88,6 @@ void* myln_cascade_new(float threshold) {
     catch (...) { return nullptr; }
 }
 void myln_cascade_free(void* cas) { delete cctx(cas); }
-
-void myln_cascade_tune_security(void* cas, int in_dim) {
-    myln::tune_cascade_security(cctx(cas)->cas, cctx(cas)->cas.threshold());
-    (void)in_dim;
-}
 
 void myln_cascade_tune_difficulty(void* cas) {
     myln::tune_cascade_difficulty(cctx(cas)->cas, cctx(cas)->cas.threshold());

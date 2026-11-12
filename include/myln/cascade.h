@@ -31,7 +31,7 @@ class CascadeFrame {
 
 public:
     CascadeFrame(float threshold = 0.80f)
-        : relay_(SS, 5)   // 5クラス固定（セキュリティ用）
+        : relay_(SS, 5)   // 5クラス固定
         , full_ (T,  5)
         , threshold_(threshold)
     {}

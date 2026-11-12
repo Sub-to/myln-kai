@@ -11,7 +11,7 @@
  *
  * Usage (どの言語でも同じ流れ):
  *   frame = myln_new("T", 5)
- *   myln_tune_security(frame, 5)
+ *   myln_tune_difficulty(frame)
  *   probs = myln_infer(frame, features, 5, &n)
  *   myln_free(frame)
  */
@@ -32,22 +32,11 @@ extern "C" {
 
 /* ── フレームのライフサイクル ──────────────────────────────
  * size     : "SS" / "T" / "S"
- * n_classes: 出力クラス数（チビタルなら 5）
+ * n_classes: 出力クラス数
  * 戻り値   : フレームハンドル (NULL = 失敗)
  */
 MYLN_API void* myln_new (const char* size, int n_classes);
 MYLN_API void  myln_free(void* frame);
-
-/* ── チューニング ──────────────────────────────────────────
- * 現在利用可能なチューニング:
- *   myln_tune_security : セキュリティ監視用（チビタル互換）
- *
- * 将来の頭:
- *   myln_tune_weather  : 天気・台風判定（九州男丸）
- *   myln_tune_voice    : 音声・会話
- *   myln_tune_custom   : JSON設定から読み込み（汎用。docs/tuning-config.md）
- */
-MYLN_API void myln_tune_security(void* frame, int in_dim);
 
 /* ── 汎用チューニング（JSON設定）──────────────────────────
  * path_or_json: 先頭が '{' なら JSON 文字列、それ以外はファイルパス
@@ -94,7 +83,6 @@ MYLN_API const char* myln_version  (void);
  */
 MYLN_API void*       myln_cascade_new      (float threshold);
 MYLN_API void        myln_cascade_free     (void* cas);
-MYLN_API void        myln_cascade_tune_security(void* cas, int in_dim);
 /* JSON設定: {"threshold":..., "relay":{...}, "full":{...}}  戻り値は myln_tune_custom と同じ */
 MYLN_API int         myln_cascade_tune_custom(void* cas, const char* path_or_json);
 /* 難易度判定(リレー: tech+scope / フル: 4スロット)。threshold は myln_cascade_new の値を使う */
